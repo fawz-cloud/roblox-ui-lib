@@ -1,7 +1,7 @@
 --[[
     FatalityLib - Standalone UI Library
     Style: Fatality.win (Dark Purple / Magenta)
-    Features: Draggable, Tab System, Flexible Columns, Animations, Color Picker
+    Features: Draggable, Tab System, Flexible Columns, Animations, Color Picker, Themes
 ]]
 
 local UserInputService = game:GetService("UserInputService")
@@ -20,8 +20,7 @@ Library.Globals = {
     LastUpdate = tick()
 }
 
--- Theme Colors (Public for customization)
--- Theme Colors (Public for customization)
+-- Theme Colors
 Library.Themes = {
     Fatality = {
         BG = Color3.fromRGB(25, 20, 35),
@@ -65,7 +64,7 @@ function Library:SetTheme(themeName)
     end
 end
 
--- Blur Fix: Ensure it's in Lighting and Enabled
+-- Blur Fix
 local function GetBlur()
     local b = game:GetService("Lighting"):FindFirstChild("FatalityLibBlur")
     if not b then
@@ -77,7 +76,39 @@ local function GetBlur()
     return b
 end
 
--- ... (Utility Functions remain same) ...
+-- Utility Functions
+local function NewDrawing(type, props)
+    local obj = Drawing.new(type)
+    for k, v in pairs(props) do obj[k] = v end
+    table.insert(Library.Draws, obj)
+    return obj
+end
+
+local function Lerp(a, b, t)
+    return a + (b - a) * t
+end
+
+local function AddConnection(signal, valid_func)
+    local con = signal:Connect(valid_func)
+    table.insert(Library.Connections, con)
+    return con
+end
+
+function Library:Unload()
+    for _, c in pairs(Library.Connections) do c:Disconnect() end
+    for _, d in pairs(Library.Draws) do d:Remove() end
+    if Library.InputSink then Library.InputSink:Destroy() end
+end
+
+-- Input Blocking
+local ScreenGui = Instance.new("ScreenGui", CoreGui)
+local Sink = Instance.new("TextButton", ScreenGui)
+Sink.Size = UDim2.fromScale(1,1)
+Sink.BackgroundTransparency = 1
+Sink.Text = ""
+Sink.Modal = true 
+Sink.Visible = false
+Library.InputSink = ScreenGui
 
 -- Window Class
 local Window = {}
@@ -116,99 +147,10 @@ function Library:CreateWindow(options)
     
     -- State
     self.PickerOpen = nil 
-    self.TabAnim = 0 -- 0..1 for tab switching
+    self.TabAnim = 0 
     
-    -- Cleanup on re-run (Reload Support)
+    -- Cleanup on re-run
     if getgenv().FatalityLib_Cleanup then getgenv().FatalityLib_Cleanup() end
--- ... (skip to HandleInput) ...
-    local tabW = (self.Size.X - 250) / #self.Tabs
-    local startTabX = self.Position.X + 240
-    for i, tab in ipairs(self.Tabs) do
-        local tX = startTabX + (i-1)*tabW
-        if m.X >= tX and m.X <= tX+tabW and m.Y >= self.Position.Y and m.Y <= self.Position.Y+40 then
-            if self.ActiveTab ~= tab then
-                self.ActiveTab = tab
-                self.TabAnim = 0 -- Reset animation
-            end
-            return
-        end
-    end
-
--- ... (skip to Update) ...
-function Window:Update()
-    local dt = Library.Globals.DeltaTime
-    local targetAlpha = Library.Open and 1 or 0
-    self.Config.OpenAnim = Lerp(self.Config.OpenAnim, targetAlpha, dt * 10)
-    self.TabAnim = Lerp(self.TabAnim, 1, dt * 15) -- Smooth slide in for tab content
--- ... (inside rendering loop) ...
-    if self.ActiveTab then
-        self.ActiveTab:UpdateContent(X, Y, W, H, self.TabAnim)
-    end
--- ... (rest of function) ...
-
--- Update Tab:UpdateContent signature
-function Tab:UpdateContent(wx, wy, ww, wh, anim)
-    local colW = (ww - 40) / 2
-    local curY_L = wy + 60
-    local curY_R = wy + 60
-    
-    -- Animation Offset
-    local yOffset = (1 - anim) * 20
-    curY_L = curY_L + yOffset
-    curY_R = curY_R + yOffset
-    
-    -- Render Left Column
-    for _, group in ipairs(self.Groups.Left) do
-        group:Update(wx + 15, curY_L, colW)
-        curY_L = curY_L + group:GetHeight() + 10 
-    end
-    
-    -- Render Right Column
-    for _, group in ipairs(self.Groups.Right) do
-        group:Update(wx + 25 + colW, curY_R, colW) 
-        curY_R = curY_R + group:GetHeight() + 10
-    end
-end
-
--- ... (Color Picker Update) ...
-function Group:AddColorPicker(args)
--- ... (setup) ...
-    el.PickerDraws = {
-        BG = NewDrawing("Square", {Filled=true, Color=Color3.fromRGB(40,35,50), ZIndex=15, Visible=false}),
-        Hud = NewDrawing("Square", {Filled=true, ZIndex=16, Visible=false}), 
-        HueBar = NewDrawing("Square", {Filled=true, ZIndex=16, Visible=false, Color=Color3.new(1,1,1)}),
-        CursorSV = NewDrawing("Square", {Thickness=2, Filled=false, Color=Color3.new(1,1,1), ZIndex=17, Visible=false}),
-        CursorHue = NewDrawing("Square", {Thickness=2, Filled=false, Color=Color3.new(0,0,0), ZIndex=17, Visible=false}),
-    }
--- ...
-    function el:UpdatePicker(wx, wy)
-        -- ... (pos calc) ...
-        local px, py = wx + 200, wy + 100
-        -- ...
-        local d = self.PickerDraws
-        d.BG.Position = Vector2.new(px, py); d.BG.Size = Vector2.new(150, 150); d.BG.Visible=true
-        
-        -- S/V Box
-        local svX, svY, svS = px+10, py+10, 100
-        d.Hud.Position = Vector2.new(svX, svY); d.Hud.Size = Vector2.new(svS, svS); d.Hud.Color = Color3.fromHSV(self.Hue, 1, 1); d.Hud.Visible=true
-        self.SvArea = {X=svX, Y=svY, W=svS, H=svS}
-        
-        -- SV Cursor
-        local cX = svX + (self.Sat * svS) - 3
-        local cY = (svY + svS) - (self.Val * svS) - 3
-        d.CursorSV.Position = Vector2.new(cX, cY); d.CursorSV.Size = Vector2.new(6, 6); d.CursorSV.Visible = true
-        
-        -- Hue Bar
-        local hX, hY, hW, hH = px+120, py+10, 20, 100
-        d.HueBar.Position = Vector2.new(hX, hY); d.HueBar.Size = Vector2.new(hW, hH); d.HueBar.Visible=true
-        self.HueArea = {X=hX, Y=hY, W=hW, H=hH}
-        
-        -- Hue Cursor
-        local hcY = (hY + hH) - (self.Hue * hH) - 1
-        d.CursorHue.Position = Vector2.new(hX-2, hcY); d.CursorHue.Size = Vector2.new(hW+4, 2); d.CursorHue.Visible = true
-    end
--- ...
-
     getgenv().FatalityLib_Cleanup = function() Library:Unload() end
 
     -- Render Loop
@@ -259,7 +201,7 @@ function Group:AddColorPicker(args)
         end
     end)
     
-    -- Helper for Dynamic Theme Update
+    -- Theme Update Helper
     function self:UpdateTheme()
         local C = Library.Colors
         local T = self.Config.Transparent and 0.5 or 1
@@ -309,7 +251,10 @@ function Window:HandleInput(input, began)
     for i, tab in ipairs(self.Tabs) do
         local tX = startTabX + (i-1)*tabW
         if m.X >= tX and m.X <= tX+tabW and m.Y >= self.Position.Y and m.Y <= self.Position.Y+40 then
-            self.ActiveTab = tab
+            if self.ActiveTab ~= tab then
+                self.ActiveTab = tab
+                self.TabAnim = 0 
+            end
             return
         end
     end
@@ -330,6 +275,7 @@ function Window:Update()
     local dt = Library.Globals.DeltaTime
     local targetAlpha = Library.Open and 1 or 0
     self.Config.OpenAnim = Lerp(self.Config.OpenAnim, targetAlpha, dt * 10)
+    self.TabAnim = Lerp(self.TabAnim, 1, dt * 15)
     
     self.Position = Vector2.new(
         Lerp(self.Position.X, self.TargetPos.X, dt * 15),
@@ -375,250 +321,12 @@ function Window:Update()
     local startTabX = X + 240
     for i, tab in ipairs(self.Tabs) do
         local tX = startTabX + (i-1)*tabW
-        tab:Update(tX, tabW, Y, self.ActiveTab == tab)
-    end
-    
-    if self.ActiveTab then
-        self.ActiveTab:UpdateContent(X, Y, W, H)
-    end
-    
-    if self.PickerOpen then
-        self.PickerOpen:UpdatePicker(X, Y)
-    end
-end
-
-
--- Utility Functions
-local function NewDrawing(type, props)
-    local obj = Drawing.new(type)
-    for k, v in pairs(props) do obj[k] = v end
-    table.insert(Library.Draws, obj)
-    return obj
-end
-
-local function Lerp(a, b, t)
-    return a + (b - a) * t
-end
-
-local function LerpColor(a, b, t)
-    return Color3.new(
-        Lerp(a.R, b.R, t),
-        Lerp(a.G, b.G, t),
-        Lerp(a.B, b.B, t)
-    )
-end
-
-local function AddConnection(signal, valid_func)
-    local con = signal:Connect(valid_func)
-    table.insert(Library.Connections, con)
-    return con
-end
-
-function Library:Unload()
-    for _, c in pairs(Library.Connections) do c:Disconnect() end
-    for _, d in pairs(Library.Draws) do d:Remove() end
-    if Library.InputSink then Library.InputSink:Destroy() end
-    if Library.LookBlur then Library.LookBlur:Destroy() end
-end
-
--- Input Blocking & Blur
-local Blur = Instance.new("BlurEffect", game.Lighting)
-Blur.Size = 0; Blur.Enabled = true; Library.LookBlur = Blur
-
-local ScreenGui = Instance.new("ScreenGui", CoreGui)
-local Sink = Instance.new("TextButton", ScreenGui)
-Sink.Size = UDim2.fromScale(1,1)
-Sink.BackgroundTransparency = 1
-Sink.Text = ""
-Sink.Modal = true 
-Sink.Visible = false
-Library.InputSink = ScreenGui
-
--- Window Class
-local Window = {}
-Window.__index = Window
-
-function Library:CreateWindow(options)
-    local self = setmetatable({}, Window)
-    self.Title = options.Title or "FATALITY"
-    self.Size = options.Size or Vector2.new(600, 450)
-    self.Position = options.Position or Vector2.new(100, 100)
-    self.TargetPos = self.Position -- For smooth drag
-    self.Tabs = {}
-    self.ActiveTab = nil
-    self.Keybind = options.Keybind or Enum.KeyCode.RightShift
-    
-    -- Config
-    self.Config = {
-        Blur = options.Blur ~= false, -- Default true
-        InputBlock = options.InputBlock ~= false, -- Default true
-        OpenAnim = 0 -- 0 to 1
-    }
-    
-    -- Main Drawings
-    self.Base = {
-        Border = NewDrawing("Square", {Thickness=3, Color=Library.Colors.Accent, Filled=false, ZIndex=1}), 
-        Main = NewDrawing("Square", {Filled=true, Color=Library.Colors.BG, ZIndex=1}),
-        Header = NewDrawing("Square", {Filled=true, Color=Library.Colors.Header, ZIndex=2}),
-        Title = NewDrawing("Text", {Text=self.Title, Font=2, Size=20, Color=Library.Colors.Accent, ZIndex=3}),
-        Overlay = NewDrawing("Square", {Filled=true, Color=Color3.new(0,0,0), ZIndex=10, Transparency=0, Visible=false}) -- For ColorPicker modal
-    }
-    
-    -- State
-    self.PickerOpen = nil -- Currently open color picker element
-    self.TabAnim = 0 -- 0..1 for tab switching
-    
-    -- Cleanup on re-run
-    if getgenv().FatalityLib_Cleanup then getgenv().FatalityLib_Cleanup() end
-    getgenv().FatalityLib_Cleanup = function() Library:Unload() end
-
-    -- Render Loop
-    AddConnection(RunService.RenderStepped, function() 
-        Library.Globals.DeltaTime = tick() - Library.Globals.LastUpdate
-        Library.Globals.LastUpdate = tick()
-        self:Update() 
-    end)
-    
-    -- Input Handling
-    AddConnection(UserInputService.InputBegan, function(i) 
-        if i.KeyCode == self.Keybind then 
-            Library.Open = not Library.Open 
-        end
-        if Library.Open then self:HandleInput(i, true) end
-    end)
-    
-    AddConnection(UserInputService.InputEnded, function(i) 
-        if i.UserInputType == Enum.UserInputType.MouseButton1 then 
-            Library.IsDragging = false 
-            self.SliderDragging = nil
-            self.PickerDragging = nil
-            self.HueDragging = nil
-        end
-    end)
-    
-    AddConnection(UserInputService.InputChanged, function(i) 
-        if i.UserInputType == Enum.UserInputType.MouseMovement then 
-            local m = UserInputService:GetMouseLocation()
-            if Library.IsDragging then
-                local d = m - self.DragStart
-                self.TargetPos = self.StartPos + d -- Update target, render loop lerps
-            elseif self.SliderDragging then
-                local s = self.SliderDragging
-                local pct = math.clamp((m.X - s.ClickArea.X) / s.ClickArea.W, 0, 1)
-                local newVal = s.Min + (pct * (s.Max - s.Min))
-                s.TargetValue = newVal
-                
-                if s.Round then newVal = math.floor(newVal) end
-                
-                Library.Flags[s.Flag] = newVal
-                s.Callback(newVal)
-            elseif self.PickerDragging then
-                local p = self.PickerDragging
-                p:UpdateColorFromMouse(m, "SV")
-            elseif self.HueDragging then
-                local p = self.HueDragging
-                p:UpdateColorFromMouse(m, "Hue")
-            end
-        end
-    end)
-
-    return self
-end
-
-function Window:HandleInput(input, began)
-    if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
-    if not began then return end
-    local m = UserInputService:GetMouseLocation()
-    
-    -- Prioritize Color Picker
-    if self.PickerOpen then
-        if self.PickerOpen:HandleInputPicker(m) then return end
-        -- Click outside closes picker
-        self.PickerOpen = nil
-        return
-    end
-
-    -- 1. Check Tabs
-    local tabW = (self.Size.X - 250) / #self.Tabs
-    local startTabX = self.Position.X + 240
-    for i, tab in ipairs(self.Tabs) do
-        local tX = startTabX + (i-1)*tabW
-        if m.X >= tX and m.X <= tX+tabW and m.Y >= self.Position.Y and m.Y <= self.Position.Y+40 then
-            self.ActiveTab = tab
-            return
-        end
-    end
-
-    -- 2. Check Dragging (Header)
-    if m.X >= self.Position.X and m.X <= self.Position.X+self.Size.X and m.Y >= self.Position.Y and m.Y <= self.Position.Y+40 then
-        Library.IsDragging = true
-        self.DragStart = m
-        self.StartPos = self.TargetPos -- Use current target as base to avoid jumps
-        return
-    end
-    
-    -- 3. Check Active Tab Elements
-    if self.ActiveTab then
-        self.ActiveTab:HandleInput(m)
-    end
-end
-
-function Window:Update()
-    -- Open/Close Animation
-    local dt = Library.Globals.DeltaTime
-    local targetAlpha = Library.Open and 1 or 0
-    self.Config.OpenAnim = Lerp(self.Config.OpenAnim, targetAlpha, dt * 10)
-    self.TabAnim = Lerp(self.TabAnim, 1, dt * 15) -- Smooth slide in for tab content
-    
-    -- Smooth Drag Animation
-    self.Position = Vector2.new(
-        Lerp(self.Position.X, self.TargetPos.X, dt * 15),
-        Lerp(self.Position.Y, self.TargetPos.Y, dt * 15)
-    )
-    
-    if self.Config.OpenAnim < 0.05 then 
-        for _,v in pairs(Library.Draws) do v.Visible = false end 
-        Blur.Size = 0
-        Sink.Visible = false
-        Sink.Modal = false
-        return 
-    end
-    
-    -- Apply Effects
-    if self.Config.Blur then Blur.Size = self.Config.OpenAnim * 15 end
-    if self.Config.InputBlock then 
-        Sink.Visible = Library.Open 
-        Sink.Modal = Library.Open
-    end
-
-    local X, Y = self.Position.X, self.Position.Y
-    local W, H = self.Size.X, self.Size.Y -- Fixed Height to avoid clipping issues
-    
-    -- Slide Animation
-    local animOffset = (1 - self.Config.OpenAnim) * -50
-    Y = Y + animOffset
-    
-    -- Fade Transparency (Simulated by visible check for now, can't easily alpha all drawings)
-    -- Ideally we would lerp colors here but that's expensive.
-    
-    -- Background
-    self.Base.Border.Position=Vector2.new(X-2,Y-2); self.Base.Border.Size=Vector2.new(W+4,H+4); self.Base.Border.Visible=true
-    self.Base.Main.Position=Vector2.new(X,Y); self.Base.Main.Size=Vector2.new(W,H); self.Base.Main.Visible=true
-    self.Base.Header.Position=Vector2.new(X,Y); self.Base.Header.Size=Vector2.new(W,40); self.Base.Header.Visible=true
-    self.Base.Title.Position=Vector2.new(X+15,Y+10); self.Base.Title.Visible=true
-    
-    -- Tabs Loop
-    local tabW = (W - 250) / (#self.Tabs > 0 and #self.Tabs or 1)
-    local startTabX = X + 240
-    for i, tab in ipairs(self.Tabs) do
-        local tX = startTabX + (i-1)*tabW
         local isActive = (self.ActiveTab == tab)
         tab:Update(tX, tabW, Y, isActive)
-        
         if isActive then
-            tab:UpdateContent(X, Y, W, H, self.TabAnim)
+             tab:UpdateContent(X, Y, W, H, self.TabAnim)
         else
-            tab:HideContent()
+             tab:HideContent()
         end
     end
     
@@ -661,22 +369,15 @@ function Tab:UpdateContent(wx, wy, ww, wh, anim)
     local curY_L = wy + 60
     local curY_R = wy + 60
     
-    -- Animation Offset
     local yOffset = (1 - (anim or 1)) * 20
     curY_L = curY_L + yOffset
     curY_R = curY_R + yOffset
     
-    -- Animation: Fade in elements? 
-    -- We can check self.Parent.Config.OpenAnim
-    -- But for now just show them.
-    
-    -- Render Left Column
     for _, group in ipairs(self.Groups.Left) do
         group:Update(wx + 15, curY_L, colW)
         curY_L = curY_L + group:GetHeight() + 10 
     end
     
-    -- Render Right Column
     for _, group in ipairs(self.Groups.Right) do
         group:Update(wx + 25 + colW, curY_R, colW) 
         curY_R = curY_R + group:GetHeight() + 10
@@ -697,7 +398,6 @@ function Tab:HideContent()
             end
         end
     end
-    
     hide(self.Groups.Left)
     hide(self.Groups.Right)
 end
@@ -707,7 +407,7 @@ function Tab:HandleInput(m)
     for _, g in ipairs(self.Groups.Right) do if g:HandleInput(m) then return end end
 end
 
--- Group Class (Flexible Side)
+-- Group Class
 local Group = {}
 Group.__index = Group
 
@@ -776,7 +476,6 @@ function Element.new(type, group, args)
     self.Callback = args.Callback or function() end
     self.Group = group
     
-    -- Drawings
     self.Draws = {
         Text = NewDrawing("Text", {Size=15, Font=2, Outline=true, ZIndex=4, Text=self.Name}),
         Box = NewDrawing("Square", {Filled=true, ZIndex=4}), 
@@ -835,13 +534,13 @@ function Group:AddToggle(args)
     return el
 end
 
--- Slider (With Animation)
+-- Slider
 function Group:AddSlider(args)
     local el = Element.new("Slider", self, args)
     el.Min = args.Min or 0
     el.Max = args.Max or 100
-    el.ConfigValue = args.Default or el.Min -- Actual underlying value (no visual lag)
-    el.VisualValue = el.ConfigValue -- For animation
+    el.ConfigValue = args.Default or el.Min
+    el.VisualValue = el.ConfigValue
     el.TargetValue = el.ConfigValue
     el.Round = args.Round or true
     
@@ -850,9 +549,8 @@ function Group:AddSlider(args)
     function el:Update(x, y, w)
         self.ClickArea = {X=x, Y=y, W=w, H=30}
         
-        -- Animation Logic (Lerp)
         local dt = Library.Globals.DeltaTime
-        self.VisualValue = Lerp(self.VisualValue, self.TargetValue, dt * 15) -- Smooth slide
+        self.VisualValue = Lerp(self.VisualValue, self.TargetValue, dt * 15)
         
         self.Draws.Text.Position = Vector2.new(x+10, y)
         self.Draws.Text.Color = Library.Colors.TextDim
@@ -958,7 +656,7 @@ function Group:AddKeybind(args)
     return el
 end
 
--- Color Picker (New Element)
+-- Color Picker
 function Group:AddColorPicker(args)
     local el = Element.new("ColorPicker", self, args)
     el.Value = args.Default or Color3.fromRGB(255, 255, 255)
@@ -971,11 +669,12 @@ function Group:AddColorPicker(args)
     
     Library.Flags[el.Flag] = el.Value
     
-    -- Sub Drawings for Picker modal
     el.PickerDraws = {
         BG = NewDrawing("Square", {Filled=true, Color=Color3.fromRGB(40,35,50), ZIndex=15, Visible=false}),
-        Hud = NewDrawing("Square", {Filled=true, ZIndex=16, Visible=false}), -- Displays current color large or block
-        HueBar = NewDrawing("Square", {Filled=true, ZIndex=16, Visible=false, Color=Color3.new(1,1,1)}), -- Hue Strip Placeholder
+        Hud = NewDrawing("Square", {Filled=true, ZIndex=16, Visible=false}), 
+        HueBar = NewDrawing("Square", {Filled=true, ZIndex=16, Visible=false, Color=Color3.new(1,1,1)}),
+        CursorSV = NewDrawing("Square", {Thickness=2, Filled=false, Color=Color3.new(1,1,1), ZIndex=17, Visible=false}),
+        CursorHue = NewDrawing("Square", {Thickness=2, Filled=false, Color=Color3.new(0,0,0), ZIndex=17, Visible=false}),
     }
     
     function el:Update(x, y, w)
@@ -988,7 +687,7 @@ function Group:AddColorPicker(args)
         local bx = x + w - 30
         self.Draws.Box.Position = Vector2.new(bx, y+3)
         self.Draws.Box.Size = Vector2.new(20, 12)
-        self.Draws.Box.Color = self.Value -- Show current color
+        self.Draws.Box.Color = self.Value
         self.Draws.Box.Visible = true
         
         self.Draws.Fill.Visible = false
@@ -998,14 +697,12 @@ function Group:AddColorPicker(args)
     function el:HandleInput(m)
         local c = self.ClickArea
         if m.X >= c.X and m.X <= c.X+c.W and m.Y >= c.Y and m.Y <= c.Y+c.H then
-            -- Open Picker
             self.Group.ParentTab.Parent.PickerOpen = self
             return true
         end
     end
     
     function el:UpdatePicker(wx, wy)
-        -- Draw Picker Relative to Window Center
         local px, py = wx + 200, wy + 100
         local pw, ph = 150, 150
         
@@ -1022,7 +719,7 @@ function Group:AddColorPicker(args)
         local cY = (py+10 + svS) - (self.Val * svS) - 3
         d.CursorSV.Position = Vector2.new(cX, cY); d.CursorSV.Size = Vector2.new(6, 6); d.CursorSV.Visible = true
         
-        -- Hue Bar (Vertical strip to right)
+        -- Hue Bar
         d.HueBar.Position = Vector2.new(px+120, py+10); d.HueBar.Size = Vector2.new(20, 100); d.HueBar.Visible=true
         self.HueArea = {X=px+120, Y=py+10, W=20, H=100}
 
@@ -1042,7 +739,7 @@ function Group:AddColorPicker(args)
             local a = self.HueArea
             local h = math.clamp((a.Y + a.H - m.Y)/a.H, 0, 1) -- Flip Y
             self.Hue = h
-            self.PickerDraws.HueBar.Color = Color3.fromHSV(h, 1, 1) -- Update Bar visual
+            self.PickerDraws.HueBar.Color = Color3.fromHSV(h, 1, 1)
         end
         
         self.Value = Color3.fromHSV(self.Hue, self.Sat, self.Val) 
@@ -1050,23 +747,19 @@ function Group:AddColorPicker(args)
         self.Callback(self.Value)
     end
     
-    -- Interaction for Picker
     function el:HandleInputPicker(m)
-         -- Check SV Box
          local sv = self.SvArea
          if m.X >= sv.X and m.X <= sv.X+sv.W and m.Y >= sv.Y and m.Y <= sv.Y+sv.H then
              self.Group.ParentTab.Parent.PickerDragging = self
              return true
          end
          
-         -- Check Hue Bar
          local hb = self.HueArea
          if m.X >= hb.X and m.X <= hb.X+hb.W and m.Y >= hb.Y and m.Y <= hb.Y+hb.H then
              self.Group.ParentTab.Parent.HueDragging = self
              return true
          end
          
-         -- Check Background (Consume click)
          local bg = self.PickerDraws.BG
          if m.X >= bg.Position.X and m.X <= bg.Position.X+bg.Size.X and m.Y >= bg.Position.Y and m.Y <= bg.Position.Y+bg.Size.Y then
             return true
@@ -1077,7 +770,7 @@ function Group:AddColorPicker(args)
     return el
 end
 
--- Input Listener for Keybinds
+-- Keybind Listener
 AddConnection(UserInputService.InputBegan, function(i) 
     if Library.Binding then
         local key = (i.UserInputType == Enum.UserInputType.Keyboard and i.KeyCode) or i.UserInputType
