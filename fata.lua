@@ -116,9 +116,99 @@ function Library:CreateWindow(options)
     
     -- State
     self.PickerOpen = nil 
+    self.TabAnim = 0 -- 0..1 for tab switching
     
     -- Cleanup on re-run (Reload Support)
     if getgenv().FatalityLib_Cleanup then getgenv().FatalityLib_Cleanup() end
+-- ... (skip to HandleInput) ...
+    local tabW = (self.Size.X - 250) / #self.Tabs
+    local startTabX = self.Position.X + 240
+    for i, tab in ipairs(self.Tabs) do
+        local tX = startTabX + (i-1)*tabW
+        if m.X >= tX and m.X <= tX+tabW and m.Y >= self.Position.Y and m.Y <= self.Position.Y+40 then
+            if self.ActiveTab ~= tab then
+                self.ActiveTab = tab
+                self.TabAnim = 0 -- Reset animation
+            end
+            return
+        end
+    end
+
+-- ... (skip to Update) ...
+function Window:Update()
+    local dt = Library.Globals.DeltaTime
+    local targetAlpha = Library.Open and 1 or 0
+    self.Config.OpenAnim = Lerp(self.Config.OpenAnim, targetAlpha, dt * 10)
+    self.TabAnim = Lerp(self.TabAnim, 1, dt * 15) -- Smooth slide in for tab content
+-- ... (inside rendering loop) ...
+    if self.ActiveTab then
+        self.ActiveTab:UpdateContent(X, Y, W, H, self.TabAnim)
+    end
+-- ... (rest of function) ...
+
+-- Update Tab:UpdateContent signature
+function Tab:UpdateContent(wx, wy, ww, wh, anim)
+    local colW = (ww - 40) / 2
+    local curY_L = wy + 60
+    local curY_R = wy + 60
+    
+    -- Animation Offset
+    local yOffset = (1 - anim) * 20
+    curY_L = curY_L + yOffset
+    curY_R = curY_R + yOffset
+    
+    -- Render Left Column
+    for _, group in ipairs(self.Groups.Left) do
+        group:Update(wx + 15, curY_L, colW)
+        curY_L = curY_L + group:GetHeight() + 10 
+    end
+    
+    -- Render Right Column
+    for _, group in ipairs(self.Groups.Right) do
+        group:Update(wx + 25 + colW, curY_R, colW) 
+        curY_R = curY_R + group:GetHeight() + 10
+    end
+end
+
+-- ... (Color Picker Update) ...
+function Group:AddColorPicker(args)
+-- ... (setup) ...
+    el.PickerDraws = {
+        BG = NewDrawing("Square", {Filled=true, Color=Color3.fromRGB(40,35,50), ZIndex=15, Visible=false}),
+        Hud = NewDrawing("Square", {Filled=true, ZIndex=16, Visible=false}), 
+        HueBar = NewDrawing("Square", {Filled=true, ZIndex=16, Visible=false, Color=Color3.new(1,1,1)}),
+        CursorSV = NewDrawing("Square", {Thickness=2, Filled=false, Color=Color3.new(1,1,1), ZIndex=17, Visible=false}),
+        CursorHue = NewDrawing("Square", {Thickness=2, Filled=false, Color=Color3.new(0,0,0), ZIndex=17, Visible=false}),
+    }
+-- ...
+    function el:UpdatePicker(wx, wy)
+        -- ... (pos calc) ...
+        local px, py = wx + 200, wy + 100
+        -- ...
+        local d = self.PickerDraws
+        d.BG.Position = Vector2.new(px, py); d.BG.Size = Vector2.new(150, 150); d.BG.Visible=true
+        
+        -- S/V Box
+        local svX, svY, svS = px+10, py+10, 100
+        d.Hud.Position = Vector2.new(svX, svY); d.Hud.Size = Vector2.new(svS, svS); d.Hud.Color = Color3.fromHSV(self.Hue, 1, 1); d.Hud.Visible=true
+        self.SvArea = {X=svX, Y=svY, W=svS, H=svS}
+        
+        -- SV Cursor
+        local cX = svX + (self.Sat * svS) - 3
+        local cY = (svY + svS) - (self.Val * svS) - 3
+        d.CursorSV.Position = Vector2.new(cX, cY); d.CursorSV.Size = Vector2.new(6, 6); d.CursorSV.Visible = true
+        
+        -- Hue Bar
+        local hX, hY, hW, hH = px+120, py+10, 20, 100
+        d.HueBar.Position = Vector2.new(hX, hY); d.HueBar.Size = Vector2.new(hW, hH); d.HueBar.Visible=true
+        self.HueArea = {X=hX, Y=hY, W=hW, H=hH}
+        
+        -- Hue Cursor
+        local hcY = (hY + hH) - (self.Hue * hH) - 1
+        d.CursorHue.Position = Vector2.new(hX-2, hcY); d.CursorHue.Size = Vector2.new(hW+4, 2); d.CursorHue.Visible = true
+    end
+-- ...
+
     getgenv().FatalityLib_Cleanup = function() Library:Unload() end
 
     -- Render Loop
