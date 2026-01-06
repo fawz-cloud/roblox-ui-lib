@@ -466,6 +466,7 @@ function Library:CreateWindow(options)
     
     -- State
     self.PickerOpen = nil -- Currently open color picker element
+    self.TabAnim = 0 -- 0..1 for tab switching
     
     -- Cleanup on re-run
     if getgenv().FatalityLib_Cleanup then getgenv().FatalityLib_Cleanup() end
@@ -567,6 +568,7 @@ function Window:Update()
     local dt = Library.Globals.DeltaTime
     local targetAlpha = Library.Open and 1 or 0
     self.Config.OpenAnim = Lerp(self.Config.OpenAnim, targetAlpha, dt * 10)
+    self.TabAnim = Lerp(self.TabAnim, 1, dt * 15) -- Smooth slide in for tab content
     
     -- Smooth Drag Animation
     self.Position = Vector2.new(
@@ -614,7 +616,7 @@ function Window:Update()
         tab:Update(tX, tabW, Y, isActive)
         
         if isActive then
-            tab:UpdateContent(X, Y, W, H)
+            tab:UpdateContent(X, Y, W, H, self.TabAnim)
         else
             tab:HideContent()
         end
@@ -654,10 +656,15 @@ function Tab:Update(x, w, y, isActive)
     self.Draws.Bar.Visible = isActive
 end
 
-function Tab:UpdateContent(wx, wy, ww, wh)
+function Tab:UpdateContent(wx, wy, ww, wh, anim)
     local colW = (ww - 40) / 2
     local curY_L = wy + 60
     local curY_R = wy + 60
+    
+    -- Animation Offset
+    local yOffset = (1 - (anim or 1)) * 20
+    curY_L = curY_L + yOffset
+    curY_R = curY_R + yOffset
     
     -- Animation: Fade in elements? 
     -- We can check self.Parent.Config.OpenAnim
@@ -1008,11 +1015,21 @@ function Group:AddColorPicker(args)
         -- S/V Box
         d.Hud.Position = Vector2.new(px+10, py+10); d.Hud.Size = Vector2.new(100, 100); d.Hud.Color = Color3.fromHSV(self.Hue, 1, 1); d.Hud.Visible=true
         self.SvArea = {X=px+10, Y=py+10, W=100, H=100}
+
+        -- SV Cursor
+        local svS = 100
+        local cX = (px+10) + (self.Sat * svS) - 3
+        local cY = (py+10 + svS) - (self.Val * svS) - 3
+        d.CursorSV.Position = Vector2.new(cX, cY); d.CursorSV.Size = Vector2.new(6, 6); d.CursorSV.Visible = true
         
         -- Hue Bar (Vertical strip to right)
         d.HueBar.Position = Vector2.new(px+120, py+10); d.HueBar.Size = Vector2.new(20, 100); d.HueBar.Visible=true
-        
         self.HueArea = {X=px+120, Y=py+10, W=20, H=100}
+
+        -- Hue Cursor
+        local hH = 100
+        local hcY = (py+10 + hH) - (self.Hue * hH) - 1
+        d.CursorHue.Position = Vector2.new(px+120-2, hcY); d.CursorHue.Size = Vector2.new(24, 2); d.CursorHue.Visible = true
     end
     
     function el:UpdateColorFromMouse(m, mode)
