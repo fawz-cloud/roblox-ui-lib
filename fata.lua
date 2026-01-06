@@ -21,17 +21,282 @@ Library.Globals = {
 }
 
 -- Theme Colors (Public for customization)
-Library.Colors = {
-    BG = Color3.fromRGB(25, 20, 35),        
-    Header = Color3.fromRGB(35, 25, 45),    
-    TabBG = Color3.fromRGB(20, 15, 25),     
-    GroupBG = Color3.fromRGB(30, 25, 40),   
-    Stroke = Color3.fromRGB(60, 50, 80),    
-    Accent = Color3.fromRGB(210, 0, 85),    
-    Text = Color3.fromRGB(230, 230, 230),
-    TextDim = Color3.fromRGB(140, 140, 150),
-    TextSelected = Color3.fromRGB(255, 255, 255)
+-- Theme Colors (Public for customization)
+Library.Themes = {
+    Fatality = {
+        BG = Color3.fromRGB(25, 20, 35),
+        Header = Color3.fromRGB(35, 25, 45),
+        TabBG = Color3.fromRGB(20, 15, 25),
+        GroupBG = Color3.fromRGB(30, 25, 40),
+        Stroke = Color3.fromRGB(60, 50, 80),
+        Accent = Color3.fromRGB(210, 0, 85),
+        Text = Color3.fromRGB(230, 230, 230),
+        TextDim = Color3.fromRGB(140, 140, 150),
+        TextSelected = Color3.fromRGB(255, 255, 255)
+    },
+    ModernDark = {
+        BG = Color3.fromRGB(10, 10, 10),
+        Header = Color3.fromRGB(15, 15, 15),
+        TabBG = Color3.fromRGB(12, 12, 12),
+        GroupBG = Color3.fromRGB(18, 18, 18),
+        Stroke = Color3.fromRGB(40, 40, 40),
+        Accent = Color3.fromRGB(255, 255, 255),
+        Text = Color3.fromRGB(255, 255, 255),
+        TextDim = Color3.fromRGB(150, 150, 150),
+        TextSelected = Color3.fromRGB(255, 255, 255)
+    },
+    ModernLight = {
+        BG = Color3.fromRGB(240, 240, 240),
+        Header = Color3.fromRGB(220, 220, 220),
+        TabBG = Color3.fromRGB(230, 230, 230),
+        GroupBG = Color3.fromRGB(250, 250, 250),
+        Stroke = Color3.fromRGB(200, 200, 200),
+        Accent = Color3.fromRGB(0, 0, 0),
+        Text = Color3.fromRGB(20, 20, 20),
+        TextDim = Color3.fromRGB(100, 100, 100),
+        TextSelected = Color3.fromRGB(0, 0, 0)
+    }
 }
+Library.Colors = Library.Themes.Fatality -- Default
+
+function Library:SetTheme(themeName)
+    if Library.Themes[themeName] then
+        Library.Colors = Library.Themes[themeName]
+    end
+end
+
+-- Blur Fix: Ensure it's in Lighting and Enabled
+local function GetBlur()
+    local b = game:GetService("Lighting"):FindFirstChild("FatalityLibBlur")
+    if not b then
+        b = Instance.new("BlurEffect", game:GetService("Lighting"))
+        b.Name = "FatalityLibBlur"
+        b.Size = 0
+        b.Enabled = true
+    end
+    return b
+end
+
+-- ... (Utility Functions remain same) ...
+
+-- Window Class
+local Window = {}
+Window.__index = Window
+
+function Library:CreateWindow(options)
+    local self = setmetatable({}, Window)
+    self.Title = options.Title or "FATALITY"
+    self.Size = options.Size or Vector2.new(600, 450)
+    self.Position = options.Position or Vector2.new(100, 100)
+    self.TargetPos = self.Position
+    self.Tabs = {}
+    self.ActiveTab = nil
+    self.Keybind = options.Keybind or Enum.KeyCode.RightShift
+    
+    -- Config
+    self.Config = {
+        Blur = options.Blur ~= false, 
+        InputBlock = options.InputBlock ~= false,
+        Theme = options.Theme or "Fatality",
+        Transparent = options.Transparent or false,
+        Rounding = options.Rounding or false,
+        OpenAnim = 0
+    }
+    
+    Library:SetTheme(self.Config.Theme)
+
+    -- Main Drawings
+    self.Base = {
+        Border = NewDrawing("Square", {Thickness=3, Filled=false, ZIndex=1}), 
+        Main = NewDrawing("Square", {Filled=true, ZIndex=1}),
+        Header = NewDrawing("Square", {Filled=true, ZIndex=2}),
+        Title = NewDrawing("Text", {Text=self.Title, Font=2, Size=20, ZIndex=3}),
+        Overlay = NewDrawing("Square", {Filled=true, Color=Color3.new(0,0,0), ZIndex=10, Transparency=0, Visible=false})
+    }
+    
+    -- State
+    self.PickerOpen = nil 
+    
+    -- Cleanup on re-run (Reload Support)
+    if getgenv().FatalityLib_Cleanup then getgenv().FatalityLib_Cleanup() end
+    getgenv().FatalityLib_Cleanup = function() Library:Unload() end
+
+    -- Render Loop
+    AddConnection(RunService.RenderStepped, function() 
+        Library.Globals.DeltaTime = tick() - Library.Globals.LastUpdate
+        Library.Globals.LastUpdate = tick()
+        self:Update() 
+    end)
+    
+    -- Input Handling
+    AddConnection(UserInputService.InputBegan, function(i) 
+        if i.KeyCode == self.Keybind then 
+            Library.Open = not Library.Open 
+        end
+        if Library.Open then self:HandleInput(i, true) end
+    end)
+    
+    AddConnection(UserInputService.InputEnded, function(i) 
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then 
+            Library.IsDragging = false 
+            self.SliderDragging = nil
+            self.PickerDragging = nil
+            self.HueDragging = nil
+        end
+    end)
+    
+    AddConnection(UserInputService.InputChanged, function(i) 
+        if i.UserInputType == Enum.UserInputType.MouseMovement then 
+            local m = UserInputService:GetMouseLocation()
+            if Library.IsDragging then
+                local d = m - self.DragStart
+                self.TargetPos = self.StartPos + d 
+            elseif self.SliderDragging then
+                local s = self.SliderDragging
+                local pct = math.clamp((m.X - s.ClickArea.X) / s.ClickArea.W, 0, 1)
+                local newVal = s.Min + (pct * (s.Max - s.Min))
+                s.TargetValue = newVal
+                if s.Round then newVal = math.floor(newVal) end
+                Library.Flags[s.Flag] = newVal
+                s.Callback(newVal)
+            elseif self.PickerDragging then
+                local p = self.PickerDragging
+                p:UpdateColorFromMouse(m, "SV")
+            elseif self.HueDragging then
+                local p = self.HueDragging
+                p:UpdateColorFromMouse(m, "Hue")
+            end
+        end
+    end)
+    
+    -- Helper for Dynamic Theme Update
+    function self:UpdateTheme()
+        local C = Library.Colors
+        local T = self.Config.Transparent and 0.5 or 1
+        
+        self.Base.Border.Color = C.Accent
+        self.Base.Main.Color = C.BG
+        self.Base.Main.Transparency = T
+        self.Base.Header.Color = C.Header
+        self.Base.Header.Transparency = T
+        self.Base.Title.Color = C.Accent
+        
+        if self.ActiveTab then
+            for _, groups in pairs({self.ActiveTab.Groups.Left, self.ActiveTab.Groups.Right}) do
+                for _, g in ipairs(groups) do
+                    g.Draws.BG.Color = C.GroupBG
+                    g.Draws.BG.Transparency = T
+                    g.Draws.Border.Color = C.Stroke
+                    g.Draws.Title.Color = C.TextDim
+                    for _, item in ipairs(g.Items) do
+                       item.Draws.Text.Color = C.Text
+                       if item.Type == "Slider" or item.Type == "Toggle" then
+                           item.Draws.Box.Color = C.Stroke
+                           item.Draws.Fill.Color = C.Accent
+                       end
+                    end
+                end
+            end
+        end
+    end
+
+    return self
+end
+
+function Window:HandleInput(input, began)
+    if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+    if not began then return end
+    local m = UserInputService:GetMouseLocation()
+    
+    if self.PickerOpen then
+        if self.PickerOpen:HandleInputPicker(m) then return end
+        self.PickerOpen = nil
+        return
+    end
+
+    local tabW = (self.Size.X - 250) / #self.Tabs
+    local startTabX = self.Position.X + 240
+    for i, tab in ipairs(self.Tabs) do
+        local tX = startTabX + (i-1)*tabW
+        if m.X >= tX and m.X <= tX+tabW and m.Y >= self.Position.Y and m.Y <= self.Position.Y+40 then
+            self.ActiveTab = tab
+            return
+        end
+    end
+
+    if m.X >= self.Position.X and m.X <= self.Position.X+self.Size.X and m.Y >= self.Position.Y and m.Y <= self.Position.Y+40 then
+        Library.IsDragging = true
+        self.DragStart = m
+        self.StartPos = self.TargetPos
+        return
+    end
+    
+    if self.ActiveTab then
+        self.ActiveTab:HandleInput(m)
+    end
+end
+
+function Window:Update()
+    local dt = Library.Globals.DeltaTime
+    local targetAlpha = Library.Open and 1 or 0
+    self.Config.OpenAnim = Lerp(self.Config.OpenAnim, targetAlpha, dt * 10)
+    
+    self.Position = Vector2.new(
+        Lerp(self.Position.X, self.TargetPos.X, dt * 15),
+        Lerp(self.Position.Y, self.TargetPos.Y, dt * 15)
+    )
+    
+    if self.Config.OpenAnim < 0.05 then 
+        for _,v in pairs(Library.Draws) do v.Visible = false end 
+        local blur = GetBlur()
+        blur.Size = 0
+        if Library.InputSink then 
+            Library.InputSink.Enabled = false 
+        end
+        return 
+    end
+    
+    self:UpdateTheme()
+    
+    local blur = GetBlur()
+    if self.Config.Blur then 
+        blur.Size = self.Config.OpenAnim * 24 
+        blur.Enabled = true
+    else
+        blur.Size = 0
+    end
+    
+    if self.Config.InputBlock and Library.InputSink then 
+        Library.InputSink.Enabled = Library.Open 
+    end
+
+    local X, Y = self.Position.X, self.Position.Y
+    local W, H = self.Size.X, self.Size.Y 
+    
+    local animOffset = (1 - self.Config.OpenAnim) * -50
+    Y = Y + animOffset
+    
+    self.Base.Border.Position=Vector2.new(X-2,Y-2); self.Base.Border.Size=Vector2.new(W+4,H+4); self.Base.Border.Visible=true
+    self.Base.Main.Position=Vector2.new(X,Y); self.Base.Main.Size=Vector2.new(W,H); self.Base.Main.Visible=true
+    self.Base.Header.Position=Vector2.new(X,Y); self.Base.Header.Size=Vector2.new(W,40); self.Base.Header.Visible=true
+    self.Base.Title.Position=Vector2.new(X+15,Y+10); self.Base.Title.Visible=true
+    
+    local tabW = (W - 250) / (#self.Tabs > 0 and #self.Tabs or 1)
+    local startTabX = X + 240
+    for i, tab in ipairs(self.Tabs) do
+        local tX = startTabX + (i-1)*tabW
+        tab:Update(tX, tabW, Y, self.ActiveTab == tab)
+    end
+    
+    if self.ActiveTab then
+        self.ActiveTab:UpdateContent(X, Y, W, H)
+    end
+    
+    if self.PickerOpen then
+        self.PickerOpen:UpdatePicker(X, Y)
+    end
+end
+
 
 -- Utility Functions
 local function NewDrawing(type, props)
@@ -88,6 +353,7 @@ function Library:CreateWindow(options)
     self.Title = options.Title or "FATALITY"
     self.Size = options.Size or Vector2.new(600, 450)
     self.Position = options.Position or Vector2.new(100, 100)
+    self.TargetPos = self.Position -- For smooth drag
     self.Tabs = {}
     self.ActiveTab = nil
     self.Keybind = options.Keybind or Enum.KeyCode.RightShift
@@ -135,6 +401,7 @@ function Library:CreateWindow(options)
             Library.IsDragging = false 
             self.SliderDragging = nil
             self.PickerDragging = nil
+            self.HueDragging = nil
         end
     end)
     
@@ -143,21 +410,23 @@ function Library:CreateWindow(options)
             local m = UserInputService:GetMouseLocation()
             if Library.IsDragging then
                 local d = m - self.DragStart
-                self.Position = self.StartPos + d
+                self.TargetPos = self.StartPos + d -- Update target, render loop lerps
             elseif self.SliderDragging then
                 local s = self.SliderDragging
                 local pct = math.clamp((m.X - s.ClickArea.X) / s.ClickArea.W, 0, 1)
                 local newVal = s.Min + (pct * (s.Max - s.Min))
-                s.TargetValue = newVal -- Animate towards this
+                s.TargetValue = newVal
                 
-                -- Instant update for callback/flag, but visual is lerped
-                if s.Round then newVal = math.floor(newVal) end -- Optional int support
+                if s.Round then newVal = math.floor(newVal) end
                 
                 Library.Flags[s.Flag] = newVal
                 s.Callback(newVal)
             elseif self.PickerDragging then
                 local p = self.PickerDragging
-                p:UpdateColorFromMouse(m)
+                p:UpdateColorFromMouse(m, "SV")
+            elseif self.HueDragging then
+                local p = self.HueDragging
+                p:UpdateColorFromMouse(m, "Hue")
             end
         end
     end)
@@ -172,21 +441,13 @@ function Window:HandleInput(input, began)
     
     -- Prioritize Color Picker
     if self.PickerOpen then
-        if self.PickerOpen:HandleInput(m) then return end
+        if self.PickerOpen:HandleInputPicker(m) then return end
         -- Click outside closes picker
         self.PickerOpen = nil
         return
     end
 
-    -- 1. Check Dragging (Header)
-    if m.X >= self.Position.X and m.X <= self.Position.X+self.Size.X and m.Y >= self.Position.Y and m.Y <= self.Position.Y+40 then
-        Library.IsDragging = true
-        self.DragStart = m
-        self.StartPos = self.Position
-        return
-    end
-
-    -- 2. Check Tabs
+    -- 1. Check Tabs
     local tabW = (self.Size.X - 250) / #self.Tabs
     local startTabX = self.Position.X + 240
     for i, tab in ipairs(self.Tabs) do
@@ -195,6 +456,14 @@ function Window:HandleInput(input, began)
             self.ActiveTab = tab
             return
         end
+    end
+
+    -- 2. Check Dragging (Header)
+    if m.X >= self.Position.X and m.X <= self.Position.X+self.Size.X and m.Y >= self.Position.Y and m.Y <= self.Position.Y+40 then
+        Library.IsDragging = true
+        self.DragStart = m
+        self.StartPos = self.TargetPos -- Use current target as base to avoid jumps
+        return
     end
     
     -- 3. Check Active Tab Elements
@@ -208,6 +477,12 @@ function Window:Update()
     local dt = Library.Globals.DeltaTime
     local targetAlpha = Library.Open and 1 or 0
     self.Config.OpenAnim = Lerp(self.Config.OpenAnim, targetAlpha, dt * 10)
+    
+    -- Smooth Drag Animation
+    self.Position = Vector2.new(
+        Lerp(self.Position.X, self.TargetPos.X, dt * 15),
+        Lerp(self.Position.Y, self.TargetPos.Y, dt * 15)
+    )
     
     if self.Config.OpenAnim < 0.05 then 
         for _,v in pairs(Library.Draws) do v.Visible = false end 
@@ -225,18 +500,14 @@ function Window:Update()
     end
 
     local X, Y = self.Position.X, self.Position.Y
-    local W, H = self.Size.X, self.Size.Y * self.Config.OpenAnim -- Animate Height? Or just Transparency?
-    -- Fatality style usually just pops or fades. Let's do simple pos check + alpha.
-    -- Actually simpler: Just keep full size but fade alpha of elements?
-    -- Let's stick to full visibility toggling for performance, this is Drawings.
-    -- Simulating Alpha on drawings means updating Color transparency which Drawings NOT all support properly (Transparency property exists but tricky with many objects).
-    -- We will stick to the height animation clipping or just simple toggle for now?
-    -- User requested "Cool animation". Let's slide Y position down?
-    -- Or Scale?
+    local W, H = self.Size.X, self.Size.Y -- Fixed Height to avoid clipping issues
     
-    -- Let's do a slide-in from top offset.
+    -- Slide Animation
     local animOffset = (1 - self.Config.OpenAnim) * -50
     Y = Y + animOffset
+    
+    -- Fade Transparency (Simulated by visible check for now, can't easily alpha all drawings)
+    -- Ideally we would lerp colors here but that's expensive.
     
     -- Background
     self.Base.Border.Position=Vector2.new(X-2,Y-2); self.Base.Border.Size=Vector2.new(W+4,H+4); self.Base.Border.Visible=true
@@ -570,16 +841,20 @@ end
 function Group:AddColorPicker(args)
     local el = Element.new("ColorPicker", self, args)
     el.Value = args.Default or Color3.fromRGB(255, 255, 255)
+    el.Hue = 0
+    el.Sat = 0
+    el.Val = 1
+    
+    local h, s, v = Color3.toHSV(el.Value)
+    el.Hue, el.Sat, el.Val = h, s, v
+    
     Library.Flags[el.Flag] = el.Value
     
-    -- Sub Drawings for Picker modal (initialized when opened)
+    -- Sub Drawings for Picker modal
     el.PickerDraws = {
         BG = NewDrawing("Square", {Filled=true, Color=Color3.fromRGB(40,35,50), ZIndex=15, Visible=false}),
-        SatVal = NewDrawing("Image", {ZIndex=16, Visible=false, Data="rbxassetid://..."}), -- We do not have image assets easily, used procedural gradient?
-        -- For procedural gradient in Drawings, we need many squares. Bad performance.
-        -- Fallback: Simple Hue Slider + SV Square simulation.
-        -- Using simple Color3 HSV logic.
-        Hud = NewDrawing("Square", {Filled=true, ZIndex=16, Visible=false}), -- Displays current color large
+        Hud = NewDrawing("Square", {Filled=true, ZIndex=16, Visible=false}), -- Displays current color large or block
+        HueBar = NewDrawing("Square", {Filled=true, ZIndex=16, Visible=false, Color=Color3.new(1,1,1)}), -- Hue Strip Placeholder
     }
     
     function el:Update(x, y, w)
@@ -606,8 +881,6 @@ function Group:AddColorPicker(args)
             self.Group.ParentTab.Parent.PickerOpen = self
             return true
         end
-        
-        -- Logic handled in window update for modal
     end
     
     function el:UpdatePicker(wx, wy)
@@ -618,38 +891,54 @@ function Group:AddColorPicker(args)
         local d = self.PickerDraws
         d.BG.Position = Vector2.new(px, py); d.BG.Size = Vector2.new(pw, ph); d.BG.Visible=true
         
-        d.Hud.Position = Vector2.new(px+10, py+10); d.Hud.Size = Vector2.new(pw-20, ph-20); d.Hud.Color = self.Value; d.Hud.Visible=true
-        -- Simplified Picker: Just a color randomization for 'Test' or 'Demo' unless we do full calculation.
-        -- To properly do ColorPicker in Drawings without Images: extremely complex.
-        -- We will implement a simplified RED/GREEN/BLUE slider set inside the picker modal? 
-        -- Or just update functionality that user requested: "Colour picker sliderberanimasi".
-        -- Let's make it drag to change hue/sat simply based on mouse X/Y inside box?
+        -- S/V Box
+        d.Hud.Position = Vector2.new(px+10, py+10); d.Hud.Size = Vector2.new(100, 100); d.Hud.Color = Color3.fromHSV(self.Hue, 1, 1); d.Hud.Visible=true
+        self.SvArea = {X=px+10, Y=py+10, W=100, H=100}
         
-        self.PickerArea = {X=px, Y=py, W=pw, H=ph}
+        -- Hue Bar (Vertical strip to right)
+        d.HueBar.Position = Vector2.new(px+120, py+10); d.HueBar.Size = Vector2.new(20, 100); d.HueBar.Visible=true
+        
+        self.HueArea = {X=px+120, Y=py+10, W=20, H=100}
     end
     
-    function el:UpdateColorFromMouse(m)
-        local a = self.PickerArea
-        -- Saturation (X), Value (Y)
-        local s = math.clamp((m.X - a.X)/a.W, 0, 1)
-        local v = math.clamp((a.Y + a.H - m.Y)/a.H, 0, 1)
+    function el:UpdateColorFromMouse(m, mode)
+        if mode == "SV" then
+            local a = self.SvArea
+            local s = math.clamp((m.X - a.X)/a.W, 0, 1)
+            local v = math.clamp((a.Y + a.H - m.Y)/a.H, 0, 1) -- Flip Y
+            self.Sat, self.Val = s, v
+        elseif mode == "Hue" then
+            local a = self.HueArea
+            local h = math.clamp((a.Y + a.H - m.Y)/a.H, 0, 1) -- Flip Y
+            self.Hue = h
+            self.PickerDraws.HueBar.Color = Color3.fromHSV(h, 1, 1) -- Update Bar visual
+        end
         
-        -- Cycle Hue over time or separate slider? Let's just use X/Y maps for simple RGB
-        -- Use HSV: Hue = 0 (Fixed Red for test), S=s, V=v
-        local h, _, _ = Color3.toHSV(self.Value)
-        self.Value = Color3.fromHSV(h, s, v) 
-        
+        self.Value = Color3.fromHSV(self.Hue, self.Sat, self.Val) 
         Library.Flags[self.Flag] = self.Value
         self.Callback(self.Value)
     end
     
     -- Interaction for Picker
     function el:HandleInputPicker(m)
-         -- Logic called from Window when picker active
-         local a = self.PickerArea
-         if m.X >= a.X and m.X <= a.X+a.W and m.Y >= a.Y and m.Y <= a.Y+a.H then
+         -- Check SV Box
+         local sv = self.SvArea
+         if m.X >= sv.X and m.X <= sv.X+sv.W and m.Y >= sv.Y and m.Y <= sv.Y+sv.H then
              self.Group.ParentTab.Parent.PickerDragging = self
              return true
+         end
+         
+         -- Check Hue Bar
+         local hb = self.HueArea
+         if m.X >= hb.X and m.X <= hb.X+hb.W and m.Y >= hb.Y and m.Y <= hb.Y+hb.H then
+             self.Group.ParentTab.Parent.HueDragging = self
+             return true
+         end
+         
+         -- Check Background (Consume click)
+         local bg = self.PickerDraws.BG
+         if m.X >= bg.Position.X and m.X <= bg.Position.X+bg.Size.X and m.Y >= bg.Position.Y and m.Y <= bg.Position.Y+bg.Size.Y then
+            return true
          end
     end
     
