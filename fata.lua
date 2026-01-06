@@ -587,7 +587,7 @@ function Tab:UpdateContent(wx, wy, ww, wh)
 end
 
 function Tab:HideContent()
-    for _, groups in pairs({self.Groups.Left, self.Groups.Right}) do
+    local function hide(groups)
         for _, g in ipairs(groups) do
             g.Draws.BG.Visible = false
             g.Draws.Border.Visible = false
@@ -600,6 +600,9 @@ function Tab:HideContent()
             end
         end
     end
+    
+    hide(self.Groups.Left)
+    hide(self.Groups.Right)
 end
 
 function Tab:HandleInput(m)
