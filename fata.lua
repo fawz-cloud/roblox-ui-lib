@@ -231,6 +231,8 @@ function Library:CreateWindow(options)
             end
         end
     end
+    
+    self:UpdateTheme() -- Init colors
 
     return self
 end
@@ -292,7 +294,7 @@ function Window:Update()
         return 
     end
     
-    self:UpdateTheme()
+    -- self:UpdateTheme() -- Removed heavy per-frame call
     
     local blur = GetBlur()
     if self.Config.Blur then 
@@ -672,10 +674,18 @@ function Group:AddColorPicker(args)
     el.PickerDraws = {
         BG = NewDrawing("Square", {Filled=true, Color=Color3.fromRGB(40,35,50), ZIndex=15, Visible=false}),
         Hud = NewDrawing("Square", {Filled=true, ZIndex=16, Visible=false}), 
-        HueBar = NewDrawing("Square", {Filled=true, ZIndex=16, Visible=false, Color=Color3.new(1,1,1)}),
+        -- HueBar = NewDrawing("Square", {Filled=true, ZIndex=16, Visible=false, Color=Color3.new(1,1,1)}), -- Old single bar
         CursorSV = NewDrawing("Square", {Thickness=2, Filled=false, Color=Color3.new(1,1,1), ZIndex=17, Visible=false}),
         CursorHue = NewDrawing("Square", {Thickness=2, Filled=false, Color=Color3.new(0,0,0), ZIndex=17, Visible=false}),
     }
+    
+    -- Generate Hue Spectrum Segments
+    el.HueSegments = {}
+    for i=0, 40 do
+        local seg = NewDrawing("Square", {Filled=true, ZIndex=16, Visible=false})
+        seg.Color = Color3.fromHSV(i/40, 1, 1)
+        table.insert(el.HueSegments, seg)
+    end
     
     function el:Update(x, y, w)
         self.ClickArea = {X=x, Y=y, W=w, H=25}
@@ -719,9 +729,17 @@ function Group:AddColorPicker(args)
         local cY = (py+10 + svS) - (self.Val * svS) - 3
         d.CursorSV.Position = Vector2.new(cX, cY); d.CursorSV.Size = Vector2.new(6, 6); d.CursorSV.Visible = true
         
-        -- Hue Bar
-        d.HueBar.Position = Vector2.new(px+120, py+10); d.HueBar.Size = Vector2.new(20, 100); d.HueBar.Visible=true
+        -- Hue Bar (Spectrum)
+        -- d.HueBar.Position = Vector2.new(px+120, py+10); d.HueBar.Size = Vector2.new(20, 100); d.HueBar.Visible=true
         self.HueArea = {X=px+120, Y=py+10, W=20, H=100}
+        
+        local hBaseX, hBaseY = px+120, py+10
+        local segH = 100 / #self.HueSegments
+        for i, seg in ipairs(self.HueSegments) do
+            seg.Position = Vector2.new(hBaseX, hBaseY + (i-1)*segH)
+            seg.Size = Vector2.new(20, segH + 1) -- +1 overlap
+            seg.Visible = true
+        end
 
         -- Hue Cursor
         local hH = 100
@@ -739,7 +757,7 @@ function Group:AddColorPicker(args)
             local a = self.HueArea
             local h = math.clamp((a.Y + a.H - m.Y)/a.H, 0, 1) -- Flip Y
             self.Hue = h
-            self.PickerDraws.HueBar.Color = Color3.fromHSV(h, 1, 1)
+            -- self.PickerDraws.HueBar.Color = Color3.fromHSV(h, 1, 1) -- Segmented bar doesn't change color
         end
         
         self.Value = Color3.fromHSV(self.Hue, self.Sat, self.Val) 
