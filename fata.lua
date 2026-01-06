@@ -515,20 +515,21 @@ function Window:Update()
     self.Base.Header.Position=Vector2.new(X,Y); self.Base.Header.Size=Vector2.new(W,40); self.Base.Header.Visible=true
     self.Base.Title.Position=Vector2.new(X+15,Y+10); self.Base.Title.Visible=true
     
-    -- Tabs
+    -- Tabs Loop
     local tabW = (W - 250) / (#self.Tabs > 0 and #self.Tabs or 1)
     local startTabX = X + 240
     for i, tab in ipairs(self.Tabs) do
         local tX = startTabX + (i-1)*tabW
-        tab:Update(tX, tabW, Y, self.ActiveTab == tab)
+        local isActive = (self.ActiveTab == tab)
+        tab:Update(tX, tabW, Y, isActive)
+        
+        if isActive then
+            tab:UpdateContent(X, Y, W, H)
+        else
+            tab:HideContent()
+        end
     end
     
-    -- Active Tab Content
-    if self.ActiveTab then
-        self.ActiveTab:UpdateContent(X, Y, W, H)
-    end
-    
-    -- Color Picker Overlay
     if self.PickerOpen then
         self.PickerOpen:UpdatePicker(X, Y)
     end
@@ -568,16 +569,36 @@ function Tab:UpdateContent(wx, wy, ww, wh)
     local curY_L = wy + 60
     local curY_R = wy + 60
     
+    -- Animation: Fade in elements? 
+    -- We can check self.Parent.Config.OpenAnim
+    -- But for now just show them.
+    
     -- Render Left Column
     for _, group in ipairs(self.Groups.Left) do
         group:Update(wx + 15, curY_L, colW)
-        curY_L = curY_L + group:GetHeight() + 10 -- Padding
+        curY_L = curY_L + group:GetHeight() + 10 
     end
     
     -- Render Right Column
     for _, group in ipairs(self.Groups.Right) do
-        group:Update(wx + 25 + colW, curY_R, colW) -- +10 padding + gap
+        group:Update(wx + 25 + colW, curY_R, colW) 
         curY_R = curY_R + group:GetHeight() + 10
+    end
+end
+
+function Tab:HideContent()
+    for _, groups in pairs({self.Groups.Left, self.Groups.Right}) do
+        for _, g in ipairs(groups) do
+            g.Draws.BG.Visible = false
+            g.Draws.Border.Visible = false
+            g.Draws.Title.Visible = false
+            for _, item in ipairs(g.Items) do
+                item.Draws.Text.Visible = false
+                item.Draws.Box.Visible = false
+                item.Draws.Fill.Visible = false
+                item.Draws.Val.Visible = false
+            end
+        end
     end
 end
 
